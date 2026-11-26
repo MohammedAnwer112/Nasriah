@@ -100,6 +100,15 @@ button.g{background:var(--sky2);color:var(--tx)}button.r{background:#d64545}
 .dots i{width:8px;height:8px;border-radius:50%;background:#fff6;transition:all .3s}.dots i.on{background:#fff;width:22px;border-radius:6px}
 .ul{margin:0;padding-inline-start:20px;line-height:2}
 @keyframes kb{from{transform:scale(1)}to{transform:scale(1.08)}}
+
+.gnav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;gap:6px;overflow-x:auto;padding:8px 12px;background:var(--bg);border-bottom:1px solid var(--bd);margin-top:-1px}
+.gnav button{background:var(--sky2);color:var(--tx);white-space:nowrap;padding:6px 14px;font-size:13px}
+.st{scroll-margin-top:60px}
+.sh{margin:14px 4px 8px;color:var(--sky)}
+.sbody{white-space:pre-wrap;overflow-x:auto;line-height:1.9}
+.vmc{border-inline-start:4px solid var(--sky)}.vmc p{margin:6px 0 0;line-height:1.9}
+.card.unr{border-inline-start:4px solid var(--sky);background:linear-gradient(90deg,var(--sky2),var(--card))}
+a.lk{display:inline-block;background:var(--sky2);color:var(--tx);padding:7px 14px;border-radius:10px;text-decoration:none;font-size:14px;margin-inline-end:6px;margin-top:6px}
 </style></head><body>
 <div id="load"><div class="lw"><img id="lgi" src="" alt=""></div>
 <svg viewBox="0 0 520 90" width="92%" style="max-width:520px"><text x="260" y="62" text-anchor="middle">إعدادية الناصرية للبنين</text></svg>
@@ -122,7 +131,7 @@ const FLAG='<svg class="flag" viewBox="0 0 30 20"><rect width="30" height="7" fi
 const GR={g4:'الرابع الإعدادي',g5:'الخامس الإعدادي',g6:'السادس الإعدادي'},SEC=['أ','ب','ج','د','هـ','و'];
 const AUD={all:'الجميع',students:'كل الطلاب',teachers:'المدرسين فقط',g4:'الرابع',g5:'الخامس',g6:'السادس'};
 const MAXIMG=190000,MAXIMGS=4;
-let S={users:{},posts:{},reads:{},logins:{}},IM={},me=null,tab='post',lrole='student',busy={},seen0=false,lastSig='';
+let S={users:{},posts:{},reads:{},logins:{},news:{},sched:{},feedback:{},vm:null},IM={},me=null,tab='post',lrole='student',busy={},seen0=false,lastSig='';
 let D={t:'',b:'',a:'all'},PIMGS=[],publishing=false;
 const ls={get(k){try{return JSON.parse(localStorage.getItem('nas_'+k)||'{}')}catch(e){return{}}},set(k,v){try{localStorage.setItem('nas_'+k,JSON.stringify(v));return true}catch(e){return false}}};
 const hash=s=>{let h=5381;for(const c of s)h=(h*33^c.charCodeAt(0))>>>0;return h.toString(36)};
@@ -139,28 +148,30 @@ function loadMe(){try{const m=localStorage.getItem('nas_me');if(m)return JSON.pa
 function clearMe(){try{localStorage.removeItem('nas_me')}catch(e){}try{document.cookie='nas_me=;max-age=0;path=/'}catch(e){}}
 me=loadMe();if(me)saveMe(me);
 
-async function put(c,id,d){S[c][id]=d;render();try{await api('PUT','/'+c+'/'+id,d);return true}catch(e){if(c==='posts'||c==='users'){toast('تعذر الحفظ: تأكد من الاتصال وقواعد قاعدة البيانات');if(c==='posts')delete S.posts[id];render()}return false}}
-async function del(c,id){delete S[c][id];render();try{await api('DELETE','/'+c+'/'+id);if(c==='posts')await api('DELETE','/imgs/'+id)}catch(e){toast('تعذر الحذف')}}
+async function put(c,id,d){S[c][id]=d;render();try{await api('PUT','/'+c+'/'+id,d);return true}catch(e){if(['posts','users','news','sched','feedback'].includes(c)){toast('تعذر الحفظ: تأكد من الاتصال وقواعد قاعدة البيانات');if(c==='posts'||c==='news'||c==='sched')delete S[c][id];render()}return false}}
+async function del(c,id){delete S[c][id];render();try{await api('DELETE','/'+c+'/'+id);if(c==='posts'||c==='news'||c==='sched')await api('DELETE','/imgs/'+id)}catch(e){toast('تعذر الحذف')}}
 const visible=p=>me.role==='teacher'?['all','teachers'].includes(p.aud):['all','students',me.gr].includes(p.aud);
-async function poll(){if(document.hidden||(me&&me.role==='guest'))return;
- try{const adm=me&&me.role==='admin',cols=adm?['posts','users','reads','logins']:['posts'];
-  const res=await Promise.all(cols.map(c=>api('GET','/'+c)));
-  const n={users:{},posts:{},reads:{},logins:{}};cols.forEach((c,i)=>n[c]=res[i]||{});
-  if(!adm)Object.keys(S).forEach(c=>{if(c!=='posts')n[c]=S[c]});
+async function poll(){if(document.hidden||!me)return;if(me.role==='guest'){if(Date.now()-lastPub>45000)loadPublic();return}
+ try{const adm=me.role==='admin',cols=['posts','news','sched'].concat(adm?['users','reads','logins','feedback']:[]);
+  const [res,vm]=await Promise.all([Promise.all(cols.map(c=>api('GET','/'+c))),api('GET','/vm')]);
+  const n={users:{},posts:{},reads:{},logins:{},news:{},sched:{},feedback:{}};cols.forEach((c,i)=>n[c]=res[i]||{});n.vm=vm||null;
+  if(!adm)['users','reads','logins','feedback'].forEach(c=>n[c]=S[c]||{});
   const sig=JSON.stringify(n);if(sig===lastSig)return;lastSig=sig;
-  if(seen0&&me&&!adm){const fresh=Object.entries(n.posts).filter(([id,p])=>!S.posts[id]&&visible(p));if(fresh.length){toast('وصلك تبليغ جديد من الإدارة');fresh.forEach(x=>NEW[x[0]]=1)}}
+  if(seen0&&!adm){const fresh=Object.entries(n.posts).filter(([id,p])=>!S.posts[id]&&visible(p));if(fresh.length){toast('وصلك تبليغ جديد من الإدارة');fresh.forEach(x=>NEW[x[0]]=1)}
+   else if(Object.keys(n.news).some(id=>!S.news[id]))toast('خبر جديد في أخبار الإعدادية')}
+  if(seen0&&adm&&Object.keys(n.feedback).some(id=>!S.feedback[id]))toast('وصلتك رسالة جديدة في التواصل');
   seen0=true;S=n;ls.set('pc',S.posts);render()}catch(e){}}
 const NEW={};
 function dayLog(){if(!me||me.role==='admin'||me.role==='guest')return;const k=today()+me.id;try{if(sessionStorage.getItem('nas_dl')===k)return;sessionStorage.setItem('nas_dl',k)}catch(e){}
  put('users',me.id,me);put('logins',dayKey()+'_'+me.id,{u:me.id,name:me.name,role:me.role,t:Date.now(),day:today()})}
 function topBar(sub){return `<div class="top"><img class="lg" src="${LOGO}" alt=""><h1>إعدادية الناصرية للبنين<small>${esc(sub)}</small></h1>${FLAG}${me?'<button class="g" onclick="logout()">'+(me.role==='guest'?'رجوع':'خروج')+'</button>':''}</div>`}
-function logout(){me=null;clearMe();try{sessionStorage.removeItem('nas_dl')}catch(e){}render()}
+function logout(){me=null;CF={};clearMe();try{sessionStorage.removeItem('nas_dl')}catch(e){}render();window.scrollTo(0,0)}
 function setMe(u){me=u;saveMe(u);if(u.role==='guest'){lastSig='';render();window.scrollTo(0,0);return}if(u.role==='admin')put('logins',dayKey()+'_'+u.id,{u:u.id,name:u.name,role:u.role,t:Date.now(),day:today()});else{try{sessionStorage.removeItem('nas_dl')}catch(e){}dayLog()}lastSig='';render();poll()}
-function render(){
+function render0(){
  const ae=document.activeElement;if(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)&&me!==null&&ae.id)return;
  const a=$('#app');if(!me){a.innerHTML=topBar('بوابة المدرسة — موقع الإسكان القديم')+loginHTML();return}
- if(me.role==='guest'){a.innerHTML=topBar('تعرّف على المدرسة')+guestHTML();setTimeout(initGuest,0);return}
- a.innerHTML=topBar(me.role==='admin'?'لوحة المدير':me.role==='teacher'?'واجهة المدرسين':'الطالب: '+me.name)+'<main>'+(me.role==='admin'?adminHTML():feedHTML())+'</main>';
+ if(me.role==='guest'){a.innerHTML=topBar('تعرّف على المدرسة')+guestHTML();setTimeout(()=>{initGuest();loadImgs()},0);return}
+ a.innerHTML=topBar(me.role==='admin'?'لوحة المدير':me.role==='teacher'?'واجهة المدرسين':'الطالب: '+me.name)+'<main>'+(me.role==='admin'?adminHTML():userHTML())+'</main>';
  setTimeout(()=>{if(me.role!=='admin')markReads();loadImgs()},0)}
 function loginHTML(){const r=lrole;
  return `<main><div class="card" style="text-align:center"><img src="${LOGO}" width="90" height="90" style="border-radius:50%;object-fit:cover" alt=""><h2>تسجيل الدخول</h2>
@@ -171,7 +182,7 @@ function loginHTML(){const r=lrole;
  :`<div class="pr" style="margin-bottom:8px"><img src="${PRIN}" alt=""><b>الأستاذ غسان شاكر<br><span class="mut">مدير المدرسة</span></b></div><label>كلمة سر المدير (أول دخول يحدد كلمة السر)</label><input id="pin" type="password">`}
  <button style="width:100%" onclick="doLogin()">دخول</button></div></div>
  <div class="card guestc"><div class="gh">زائر؟ تعرّف على المدرسة</div><div class="mut" style="margin:4px 0 10px">تاريخها، كادرها، كشافتها وأنشطتها — بدون تسجيل</div><button class="gb" onclick="guestIn()">الدخول كضيف</button></div></main>`}
-function guestIn(){setMe({id:'guest',name:'ضيف',role:'guest'})}
+function guestIn(){CF={};setMe({id:'guest',name:'ضيف',role:'guest'});loadPublic()}
 async function doLogin(){
  const g=i=>($('#'+i)||{}).value||'';
  if(lrole==='admin'){const p=nrm(g('pin'));if(p.length<4)return toast('كلمة السر 4 أحرف أو أكثر');
@@ -188,7 +199,7 @@ const fd=t=>new Date(t).toLocaleString('ar-IQ',{dateStyle:'medium',timeStyle:'sh
 const OKIMG=/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;
 function imgsH(id,p){if(!p.ni)return'';const a=IM[id];if(!a)return'<div class="mut" style="margin-top:8px">جارٍ تحميل الصور…</div>';
  return a.filter(s=>typeof s==='string'&&OKIMG.test(s)).map(s=>`<img class="pi" src="${s}" onclick="zoom(this.src)" alt="">`).join('')}
-async function loadImgs(){for(const [id,p] of Object.entries(S.posts)){if(!p.ni||IM[id]||busy['i'+id])continue;busy['i'+id]=1;
+async function loadImgs(){for(const [id,p] of Object.entries({...S.posts,...S.news,...S.sched})){if(!p.ni||IM[id]||busy['i'+id])continue;busy['i'+id]=1;
  try{const a=await api('GET','/imgs/'+id);if(a){IM[id]=Array.isArray(a)?a:Object.values(a);render()}}catch(e){delete busy['i'+id]}}}
 function zoom(s){const z=$('#zm');z.firstElementChild.src=s;z.style.display='flex'}
 function markReads(){if(!me||me.role==='admin')return;const rd=ls.get('rd');
@@ -197,9 +208,9 @@ function feedHTML(){
  const ps=Object.entries(S.posts).filter(x=>visible(x[1])).sort((a,b)=>b[1].t-a[1].t);
  return `<div class="card pr"><img src="${PRIN}" alt=""><div><b>${me.role==='teacher'?'تبليغات الإدارة للمدرسين':'تبليغات الإدارة'}</b><div class="mut">من الأستاذ غسان شاكر — مدير المدرسة</div></div></div>`+
  (ps.length?ps.map(([id,p])=>`<div class="card${NEW[id]?' new':''}"><div class="pr" style="margin-bottom:8px"><img src="${PRIN}" alt="" style="width:42px;height:42px"><div><b>الأستاذ غسان شاكر</b><div class="mut">مدير المدرسة · ${fd(p.t)}</div></div></div><span class="tag">${AUD[p.aud]||''}</span><h3>${esc(p.title)}</h3><div style="white-space:pre-wrap">${esc(p.body)}</div>${imgsH(id,p)}</div>`).join(''):'<div class="card mut">لا توجد تبليغات حالياً</div>')}
-function adminHTML(){
- const T=[['post','تبليغ جديد'],['list','التبليغات والمشاهدات'],['att','الحضور اليوم'],['users','المسجلون']];
- return `<div class="tabs">${T.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="tab='${t[0]}';render()">${t[1]}</button>`).join('')}</div>`+({post:postF,list:listV,att:attV,users:usersV}[tab])()}
+function adminHTML(){const un=Object.values(S.feedback).filter(f=>!f.read).length;
+ const T=[['post','تبليغ جديد'],['list','التبليغات والمشاهدات'],['news','الأخبار'],['sch','الجداول'],['vm','الرؤية والرسالة'],['fb','التواصل'+(un?' ('+ar(un)+')':'')],['att','الحضور اليوم'],['users','المسجلون']];
+ return `<div class="tabs">${T.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="setTab('${t[0]}')">${t[1]}</button>`).join('')}</div>`+({post:postF,list:listV,news:newsF,sch:schF,vm:vmF,fb:fbV,att:attV,users:usersV}[tab])()}
 function postF(){return `<div class="card"><label>العنوان</label><input id="pt" value="${esc(D.t)}" oninput="D.t=this.value"><label>النص</label><textarea id="pb" rows="5" oninput="D.b=this.value">${esc(D.b)}</textarea>
  <label>صور (حتى ${MAXIMGS}) — تُضغط تلقائياً قبل الرفع</label><input id="pf" type="file" accept="image/*" multiple onchange="addImgs(this)">
  <div class="pv" id="pv">${pvH()}</div>
@@ -247,17 +258,20 @@ function guestHTML(){
  const bubs=Array.from({length:14},(_,i)=>{const s=10+Math.random()*30|0;return `<i class="bub" style="left:${(i*7.2+Math.random()*4)|0}%;width:${s}px;height:${s}px;animation-duration:${7+Math.random()*9|0}s;animation-delay:${(-Math.random()*9).toFixed(1)}s"></i>`}).join('');
  const SC=[[IM_.sc1,'طابور كشافة الإعدادية بزيّها الرسمي ولافتة المدرسة'],[IM_.sc2,'مشاركة الكشافة في فعالية شعبة التربية الكشفية'],[IM_.sc3,'التحية الكشفية بثلاثة أصابع أثناء أداء الوعد']];
  const R=(h,d)=>`<section class="sec rv" style="transition-delay:${d||0}ms">${h}</section>`;
+ const NAV=[['g-about','التعريف'],['g-vm','الرؤية والرسالة'],['g-news','الأخبار'],['g-sch','الجداول'],['g-scout','الكشافة'],['g-contact','تواصل']];
  const fig=(src,cap)=>`<figure class="ph"><img src="${src}" onclick="zoom(this.src)" alt=""><figcaption>${cap}</figcaption></figure>`;
  return `<header class="hero">${bubs}<div class="lw"><img src="${IM_.logo}" alt=""></div>
  <h2 class="ht">إعدادية الناصرية للبنين</h2><div class="hs">مدرسة عريقة في مدينة الناصرية — محافظة ذي قار</div>
  <div class="chips"><span><b data-n="${yrs}">0</b> عاماً من العطاء</span><span>منذ <b>${ar(1927)}</b></span></div>
- <svg class="wv" viewBox="0 0 1440 80" preserveAspectRatio="none"><path d="M0,40C240,90 480,0 720,40S1200,80 1440,30L1440,80L0,80Z" fill="var(--bg)"/></svg></header>
+ <svg class="wv" viewBox="0 0 1440 80" preserveAspectRatio="none"><path d="M0,40C240,90 480,0 720,40S1200,80 1440,30L1440,80L0,80Z" fill="var(--bg)"/></svg></header><nav class="gnav">${NAV.map(x=>`<button onclick="gTo('${x[0]}')">${x[1]}</button>`).join('')}</nav>
  <main class="gm">
- ${R(`<h2 class="st">تعريف بالمدرسة</h2><div class="card"><p>إعدادية الناصرية للبنين مدرسة إعدادية للبنين في مدينة الناصرية بمحافظة ذي قار، تأسست عام ${ar(1927)} وما زالت من المدارس العريقة التي تخرّج على مقاعدها أجيال من أبناء المدينة. تضم المدرسة المرحلة الإعدادية بصفوفها الرابع والخامس والسادس، وتجمع بين التحصيل العلمي والأنشطة الكشفية والرياضية.</p>
+ ${R(`<h2 class="st" id="g-about">تعريف بالمدرسة</h2><div class="card"><p>إعدادية الناصرية للبنين مدرسة إعدادية للبنين في مدينة الناصرية بمحافظة ذي قار، تأسست عام ${ar(1927)} وما زالت من المدارس العريقة التي تخرّج على مقاعدها أجيال من أبناء المدينة. تضم المدرسة المرحلة الإعدادية بصفوفها الرابع والخامس والسادس، وتجمع بين التحصيل العلمي والأنشطة الكشفية والرياضية.</p>
   <div class="grid facts"><div><div class="num" data-n="${yrs}">0</div>عاماً</div><div><div class="num" data-n="3">0</div>صفوف إعدادية</div><div><div class="num">${ar(1927)}</div>سنة التأسيس</div></div></div>`)}
  ${R(`<h2 class="st">إدارة المدرسة</h2><div class="card pr big"><div class="ring"><img src="${IM_.prin}" alt=""></div><div><b style="font-size:17px">الأستاذ غسان شاكر</b><div class="mut">مدير المدرسة</div><p style="margin:8px 0 0">تصدر التبليغات الرسمية في هذه البوابة من إدارة المدرسة حصراً، لتصل إلى الطلاب والمدرسين أولاً بأول.</p></div></div>`)}
  ${R(`<h2 class="st">الكادر التدريسي</h2>${fig(IM_.staff,`الهيئة التدريسية في إعدادية الناصرية العريقة — ${ar('2021')} / ${ar('2022')}`)}<p class="mut" style="margin:8px 4px">كادر يجمع الخبرة والحماس، يعمل بروح الفريق لخدمة الطالب والمدرسة.</p>`)}
- ${R(`<h2 class="st">رسالة المدرسة</h2><div class="card msg"><p>إعداد جيل متعلّم، معتزّ بهويته ووطنه، يمتلك المعرفة والقيم والانضباط، وقادر على خدمة مجتمعه، من خلال تعليم جيد وبيئة مدرسية آمنة ومحفّزة وأنشطة تنمّي المواهب وتصقل الشخصية.</p><div class="vals">${['العلم','الانضباط','الانتماء','روح الفريق','خدمة المجتمع'].map(v=>`<span>${v}</span>`).join('')}</div></div>`)}
+ ${R(`<h2 class="st" id="g-vm">الرؤية والرسالة</h2>${vmHTML()}<div class="vals">${['العلم','الانضباط','الانتماء','روح الفريق','خدمة المجتمع'].map(v=>`<span>${v}</span>`).join('')}</div>`)}
+ ${R(`<h2 class="st" id="g-news">أخبار الإعدادية</h2>${newsCards(false,true)}`)}
+ ${R(`<h2 class="st" id="g-sch">جداول الدروس والامتحانات</h2>${schCards(false)}`)}
  ${R(`<h2 class="st">تميّز المدرسة</h2><div class="ex">${[
   ['١','عراقة منذ '+ar(1927),'تاريخ طويل في خدمة التعليم في الناصرية.'],
   ['٢','كادر تدريسي متكامل','هيئة تدريسية متعاونة تعمل بروح الفريق.'],
@@ -265,12 +279,13 @@ function guestHTML(){
   ['٤','بطولة رياضية سنوية','بطولة إعدادية الناصرية لخماسي كرة القدم.'],
   ['٥','تواصل رقمي مباشر','بوابة للتبليغات والحضور بين الإدارة والطلاب والمدرسين.']
  ].map(x=>`<div class="exc"><span class="bd">${x[0]}</span><b>${x[1]}</b><div class="mut">${x[2]}</div></div>`).join('')}</div>`)}
- ${R(`<h2 class="st">كشافة الإعدادية</h2>
+ ${R(`<h2 class="st" id="g-scout">كشافة الإعدادية</h2>
   <div class="sl" onclick="zoom(document.querySelector('.sl .s.on img').src)">${SC.map((x,i)=>`<div class="s${i?'':' on'}"><img src="${x[0]}" alt=""><div class="cp">${x[1]}</div></div>`).join('')}<div class="dots">${SC.map((x,i)=>`<i class="${i?'':'on'}" onclick="event.stopPropagation();slGo(${i})"></i>`).join('')}</div></div>
   <div class="card" style="margin-top:12px"><b>ما هي الكشافة؟</b><p>حركة تربوية تطوعية تُعنى ببناء شخصية الفتى بالتدريب العملي واللعب الهادف، وتقوم على ثلاثة محاور: الواجب تجاه الله والوطن، وخدمة الآخرين، والاعتماد على النفس. ويرمز رفع ثلاثة أصابع في التحية الكشفية إلى هذه المحاور الثلاثة عند أداء الوعد.</p>
   <b>كشافة إعدادية الناصرية</b><p>يظهر كشافو المدرسة بالقميص الأبيض والبنطال الأسود والوشاح الأحمر والبيريه العنابي تحت راية خضراء تحمل اسم المدرسة. وقد شاركوا في فعالية نظّمتها شعبة التربية الكشفية في تربية ذي قار لمدارس مركز المحافظة، وهي تقوم على شعار الكشافة المعروف «كن كشافاً مرة تكن كشافاً للأبد».</p>
   <ul class="ul"><li>الانضباط والطابور والالتزام بالزي والوعد الكشفي.</li><li>القيادة والعمل الجماعي من خلال السداسيات والطلائع.</li><li>المهارات الميدانية والاعتماد على النفس.</li><li>خدمة المجتمع والمشاركة في الفعاليات المدرسية والوطنية.</li></ul></div>`)}
  ${R(`<h2 class="st">النشاط الرياضي</h2><p class="mut" style="margin:0 4px 8px">تقيم المدرسة سنوياً «بطولة إعدادية الناصرية لخماسي كرة القدم» بمشاركة فرق من المدارس. (تصوير: عباس الكناني)</p>${fig(IM_.fb1,'لقطة جماعية من البطولة السنوية لخماسي كرة القدم')}${fig(IM_.fb2,'فريق آخر مشارك في البطولة قبل انطلاق المباراة')}`)}
+ ${R(`<h2 class="st" id="g-contact">تواصل معنا</h2><p class="mut" style="margin:0 4px 8px">لإرسال ملاحظة أو مقترح إلى إدارة الإعدادية عبّئ البيانات التالية.</p><div id="cf">${cfInner()}</div>`)}
  ${R(`<div class="card guestc"><div class="gh">هل أنت طالب أو مدرس في المدرسة؟</div><div class="mut" style="margin:4px 0 10px">سجّل دخولك لمتابعة تبليغات الإدارة.</div><button class="gb" onclick="logout()">تسجيل الدخول</button></div>`)}
  </main>`}
 function slGo(n){const s=document.querySelectorAll('.sl .s'),d=document.querySelectorAll('.sl .dots i');if(!s.length)return;slI=(n+s.length)%s.length;
@@ -291,6 +306,88 @@ async function loadFB(){const V='10.12.2';
    const app=firebase.apps.length?firebase.app():firebase.initializeApp(firebaseConfig);
    if(await firebase.analytics.isSupported())firebase.analytics(app);window.fbApp=app;return}catch(e){}}}
 setTimeout(loadFB,1500);
+
+/* ================= الأخبار / الجداول / الرؤية والرسالة / التواصل ================= */
+let ut='feed',NF={t:'',b:''},SF={k:'lessons',g:'all',s:'',t:'',b:''},CF={},lastPub=0,pubSig='',sending=false;
+const DEF_VM={v:'أن تكون إعدادية الناصرية للبنين مدرسة رائدة ومتميزة في الناصرية، تجمع بين أصالة تاريخها منذ ١٩٢٧ وحداثة التعليم والتقنية، وتُخرّج جيلاً واثقاً بنفسه ومعتزاً بوطنه.',m:'إعداد جيل متعلّم، معتزّ بهويته ووطنه، يمتلك المعرفة والقيم والانضباط، وقادر على خدمة مجتمعه، من خلال تعليم جيد وبيئة مدرسية آمنة ومحفّزة وأنشطة تنمّي المواهب وتصقل الشخصية.'};
+const KIND={lessons:'جدول الدروس',exams:'جدول الامتحانات'};
+const opt=(v,l,c)=>`<option value="${esc(v)}"${String(c)===String(v)?' selected':''}>${esc(l)}</option>`;
+const setTab=t=>{tab=t;PIMGS=[];render()};
+const gTo=id=>{const e=document.getElementById(id);if(e)e.scrollIntoView({behavior:'smooth',block:'start'})};
+async function loadPublic(){lastPub=Date.now();
+ try{const [n,sc,v]=await Promise.all([api('GET','/news'),api('GET','/sched'),api('GET','/vm')]);const sig=JSON.stringify([n,sc,v]);S.pubLoaded=1;if(sig===pubSig)return;pubSig=sig;S.news=n||{};S.sched=sc||{};S.vm=v||null;if(me&&me.role==='guest')render()}
+ catch(e){if(!S.pubLoaded){S.pubLoaded=2;if(me&&me.role==='guest')render()}}}
+/* ---- الأخبار ---- */
+function newsCards(adm,pub){let ns=Object.entries(S.news||{}).sort((a,b)=>b[1].t-a[1].t);if(pub)ns=ns.slice(0,6);
+ if(!ns.length)return `<div class="card mut">${pub&&!S.pubLoaded?'جارٍ تحميل الأخبار…':pub&&S.pubLoaded===2?'تعذر تحميل الأخبار حالياً':'لا توجد أخبار حالياً'}</div>`;
+ return ns.map(([id,p])=>`<div class="card"><span class="tag">خبر</span><span class="mut">${fd(p.t)}</span><h3>${esc(p.title)}</h3><div style="white-space:pre-wrap;line-height:1.9">${esc(p.body)}</div>${imgsH(id,p)}${adm?`<button class="r" style="margin-top:8px" onclick="if(confirm('حذف الخبر؟'))del('news','${esc(id)}')">حذف</button>`:''}</div>`).join('')}
+const newsHTML=()=>`<div class="card pr"><img src="${LOGO}" alt=""><div><b>أخبار الإعدادية</b><div class="mut">آخر المستجدات والفعاليات</div></div></div>`+newsCards(false);
+function newsF(){return `<div class="card"><label>عنوان الخبر</label><input id="nft" value="${esc(NF.t)}" oninput="NF.t=this.value"><label>نص الخبر</label><textarea id="nfb" rows="5" oninput="NF.b=this.value">${esc(NF.b)}</textarea>
+ <label>صور (حتى ${MAXIMGS}) — تُضغط تلقائياً</label><input id="pf" type="file" accept="image/*" multiple onchange="addImgs(this)"><div class="pv" id="pv">${pvH()}</div><button id="pbtn" style="width:100%" onclick="pubNews()">نشر الخبر</button></div>`+newsCards(true)}
+async function pubG(col,pre,p,after,label){if(publishing)return;publishing=true;const bt=$('#pbtn');if(bt){bt.disabled=true;bt.textContent='جارٍ النشر…'}
+ const id=pre+Date.now();p.t=Date.now();p.ni=PIMGS.length;let ok=true;
+ try{if(PIMGS.length)await api('PUT','/imgs/'+id,PIMGS)}catch(e){ok=false;toast('تعذر رفع الصور')}
+ if(ok){IM[id]=PIMGS.slice();ok=await put(col,id,p)}
+ publishing=false;
+ if(ok){PIMGS=[];after();lastSig='';render();toast('تم النشر')}else{const b2=$('#pbtn');if(b2){b2.disabled=false;b2.textContent=label}}}
+function pubNews(){const t=nrm(NF.t),b=NF.b.trim();if(!t||!b)return toast('اكتب العنوان والنص');pubG('news','n',{title:t,body:b},()=>{NF={t:'',b:''}},'نشر الخبر')}
+/* ---- الجداول ---- */
+function schVis(p){if(!me||me.role!=='student')return true;return(p.gr==='all'||p.gr===me.gr)&&(!p.sc||p.sc===me.sc)}
+function schCards(adm){const L=Object.entries(S.sched||{}).filter(x=>adm||schVis(x[1])).sort((a,b)=>b[1].t-a[1].t);
+ const grp=k=>{const l=L.filter(x=>x[1].k===k);return l.length?`<h3 class="sh">${KIND[k]}</h3>`+l.map(([id,p])=>`<div class="card"><span class="tag">${p.gr==='all'?'كل الصفوف':esc(GR[p.gr]||'')}</span>${p.sc?`<span class="tag">شعبة ${esc(p.sc)}</span>`:''}<span class="mut">${fd(p.t)}</span><h3>${esc(p.title)}</h3>${p.body?`<div class="sbody">${esc(p.body)}</div>`:''}${imgsH(id,p)}${adm?`<button class="r" style="margin-top:8px" onclick="if(confirm('حذف الجدول؟'))del('sched','${esc(id)}')">حذف</button>`:''}</div>`).join(''):''};
+ return (grp('exams')+grp('lessons'))||`<div class="card mut">${S.pubLoaded===2?'تعذر التحميل حالياً':'لا توجد جداول منشورة بعد'}</div>`}
+const schHTML=()=>`<div class="card pr"><img src="${LOGO}" alt=""><div><b>جداول الدروس والامتحانات</b><div class="mut">تظهر لك جداول صفك وشعبتك</div></div></div>`+schCards(false);
+function schF(){return `<div class="card"><label>النوع</label><select id="sfk" onchange="SF.k=this.value">${Object.entries(KIND).map(x=>opt(x[0],x[1],SF.k)).join('')}</select>
+ <div class="row"><div><label>الصف</label><select id="sfg" onchange="SF.g=this.value">${opt('all','كل الصفوف',SF.g)}${Object.entries(GR).map(x=>opt(x[0],x[1],SF.g)).join('')}</select></div><div><label>الشعبة</label><select id="sfs" onchange="SF.s=this.value">${opt('','كل الشعب',SF.s)}${SEC.map(x=>opt(x,x,SF.s)).join('')}</select></div></div>
+ <label>العنوان</label><input id="sft" placeholder="مثال: جدول امتحانات نصف السنة — السادس الإعدادي" value="${esc(SF.t)}" oninput="SF.t=this.value">
+ <label>الجدول كنص (اختياري إذا رفعت صورة)</label><textarea id="sfb" rows="6" oninput="SF.b=this.value">${esc(SF.b)}</textarea>
+ <label>أو صورة الجدول</label><input id="pf" type="file" accept="image/*" multiple onchange="addImgs(this)"><div class="pv" id="pv">${pvH()}</div><button id="pbtn" style="width:100%" onclick="pubSch()">نشر الجدول</button></div>`+schCards(true)}
+function pubSch(){const t=nrm(SF.t),b=SF.b.trim();if(!t||(!b&&!PIMGS.length))return toast('اكتب العنوان وأضف نص الجدول أو صورته');
+ pubG('sched','c',{k:SF.k,gr:SF.g,sc:SF.s,title:t,body:b},()=>{SF={k:SF.k,g:SF.g,s:SF.s,t:'',b:''}},'نشر الجدول')}
+/* ---- الرؤية والرسالة (مثبّتة) ---- */
+const vmGet=()=>({v:(S.vm&&S.vm.v)||DEF_VM.v,m:(S.vm&&S.vm.m)||DEF_VM.m});
+function vmHTML(){const x=vmGet();return `<div class="card vmc"><span class="tag">مثبّتة من الإدارة</span><h3>رؤية الإعدادية</h3><p>${esc(x.v)}</p></div><div class="card vmc"><span class="tag">مثبّتة من الإدارة</span><h3>رسالة الإعدادية</h3><p>${esc(x.m)}</p></div>`}
+function vmF(){const x=vmGet();return `<div class="card"><b>الرؤية والرسالة — تظهر ثابتة لكل المستخدمين والضيوف</b><label>رؤية الإعدادية</label><textarea id="vmV" rows="4">${esc(x.v)}</textarea><label>رسالة الإعدادية</label><textarea id="vmM" rows="5">${esc(x.m)}</textarea><button style="width:100%" onclick="saveVM()">حفظ وتثبيت</button></div>`+vmHTML()}
+async function saveVM(){const v=($('#vmV').value||'').trim(),m=($('#vmM').value||'').trim();if(!v||!m)return toast('اكتب الرؤية والرسالة');
+ const d={v,m,t:Date.now()};try{await api('PUT','/vm',d);S.vm=d;lastSig='';render();toast('تم الحفظ والتثبيت')}catch(e){toast('تعذر الحفظ: تأكد من الاتصال وقواعد قاعدة البيانات')}}
+/* ---- نافذة التواصل (ملاحظات ومقترحات) ---- */
+function cfInit(){if(CF.init)return;CF.init=1;const st=me&&me.role==='student';CF.type=st?'student':'parent';CF.kind='note';CF.gr=st?me.gr:'g4';CF.sc=st?me.sc:'أ';CF.sn=st?me.name:'';CF.pn='';CF.child='';CF.phone='';CF.text=''}
+function cfInner(){cfInit();const st=CF.type==='student';
+ return `<div class="card"><div class="tabs" style="margin-bottom:6px"><button class="${st?'on':''}" onclick="CF.type='student';cfRe()">أنا طالب</button><button class="${st?'':'on'}" onclick="CF.type='parent';cfRe()">أنا ولي أمر</button></div>
+ <label>نوع الرسالة</label><select id="cfk" onchange="CF.kind=this.value;cfRe()">${opt('note','ملاحظة',CF.kind)}${opt('sug','مقترح',CF.kind)}</select>
+ ${st?`<label>اسم الطالب الثلاثي *</label><input id="cfn" value="${esc(CF.sn)}" oninput="CF.sn=this.value" autocomplete="name">
+ <div class="row"><div><label>الصف *</label><select id="cfg" onchange="CF.gr=this.value">${Object.entries(GR).map(x=>opt(x[0],x[1],CF.gr)).join('')}</select></div><div><label>الشعبة *</label><select id="cfs" onchange="CF.sc=this.value">${SEC.map(x=>opt(x,x,CF.sc)).join('')}</select></div></div>`
+ :`<label>اسم ولي الأمر *</label><input id="cfn" value="${esc(CF.pn)}" oninput="CF.pn=this.value" autocomplete="name"><label>اسم الطالب وصفه (اختياري)</label><input id="cfc" value="${esc(CF.child)}" oninput="CF.child=this.value">`}
+ <label>رقم الموبايل *</label><input id="cfp" type="tel" inputmode="tel" dir="ltr" placeholder="07701234567" value="${esc(CF.phone)}" oninput="CF.phone=this.value" style="text-align:start">
+ <label>${CF.kind==='sug'?'مقترحك':'ملاحظتك'} *</label><textarea id="cfx" rows="5" maxlength="1000" oninput="CF.text=this.value">${esc(CF.text)}</textarea>
+ <button id="cfb" style="width:100%" onclick="sendFB()">إرسال إلى الإدارة</button><div class="mut" style="margin-top:8px">يُستخدم رقم الموبايل من قبل إدارة المدرسة للتواصل معك عند الحاجة.</div></div>`}
+const cfRe=()=>{const e=$('#cf');if(e)e.innerHTML=cfInner()};
+const contactHTML=()=>`<div class="card pr"><img src="${LOGO}" alt=""><div><b>التواصل مع الإدارة</b><div class="mut">أرسل ملاحظاتك ومقترحاتك</div></div></div><div id="cf">${cfInner()}</div>`;
+async function sendFB(){if(sending)return;cfInit();const st=CF.type==='student',n=nrm((st?CF.sn:CF.pn)||''),tx=(CF.text||'').trim();
+ let ph=String(CF.phone||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[\s\-()]/g,'');
+ if(st){if(n.split(' ').length<3)return toast('اكتب اسم الطالب الثلاثي كاملاً')}else if(n.split(' ').length<2)return toast('اكتب اسم ولي الأمر');
+ if(!/^(\+?964|0)?7\d{9}$/.test(ph))return toast('اكتب رقم موبايل عراقي صحيح مثل 07701234567');
+ if(tx.length<5)return toast(CF.kind==='sug'?'اكتب مقترحك':'اكتب ملاحظتك');
+ if(Date.now()-(ls.get('fbt').t||0)<30000)return toast('انتظر قليلاً قبل إرسال رسالة جديدة');
+ ph=ph.replace(/^\+?964/,'0');if(ph[0]!=='0')ph='0'+ph;
+ const rec={kind:CF.kind==='sug'?'sug':'note',type:st?'student':'parent',name:n,gr:st?CF.gr:'',sc:st?CF.sc:'',child:st?'':nrm(CF.child||''),phone:ph,text:tx,t:Date.now(),read:0};
+ sending=true;const b=$('#cfb');if(b){b.disabled=true;b.textContent='جارٍ الإرسال…'}
+ try{await api('PUT','/feedback/f'+Date.now()+hash(n+tx),rec);ls.set('fbt',{t:Date.now()});CF.text='';cfRe();toast('وصلت رسالتك إلى الإدارة، شكراً لك')}
+ catch(e){toast('تعذر الإرسال: تأكد من الاتصال وقواعد قاعدة البيانات');const b2=$('#cfb');if(b2){b2.disabled=false;b2.textContent='إرسال إلى الإدارة'}}
+ sending=false}
+function fbV(){const L=Object.entries(S.feedback||{}).sort((a,b)=>b[1].t-a[1].t);
+ return L.length?L.map(([id,f])=>{const ph=String(f.phone||'').replace(/\D/g,''),wa=ph[0]==='0'?'964'+ph.slice(1):ph;
+  return `<div class="card${f.read?'':' unr'}"><span class="tag">${f.kind==='sug'?'مقترح':'ملاحظة'}</span><span class="tag">${f.type==='student'?'طالب':'ولي أمر'}</span><span class="mut">${fd(f.t)}</span>
+  <h3>${esc(f.name)}</h3><div class="mut">${f.type==='student'?esc(GR[f.gr]||'')+' — شعبة '+esc(f.sc):(f.child?'الطالب: '+esc(f.child):'')}</div>
+  <div style="white-space:pre-wrap;margin:8px 0;line-height:1.8">${esc(f.text)}</div>
+  <a class="lk" href="tel:${ph}">اتصال ${esc(ph)}</a><a class="lk" href="https://wa.me/${wa}" target="_blank" rel="noopener">واتساب</a>
+  <div style="margin-top:8px">${f.read?'':`<button onclick="markFB('${esc(id)}')">تمت القراءة</button> `}<button class="r" onclick="if(confirm('حذف الرسالة؟'))del('feedback','${esc(id)}')">حذف</button></div></div>`}).join(''):'<div class="card mut">لا توجد رسائل من التواصل بعد</div>'}
+const markFB=id=>{if(S.feedback[id])put('feedback',id,{...S.feedback[id],read:1})};
+/* ---- واجهة الطالب/المدرس ---- */
+function userHTML(){const T=[['feed','التبليغات'],['news','الأخبار'],['sch','الجداول'],['vm','الرؤية والرسالة']];if(me.role==='student')T.push(['fb','تواصل']);
+ if(!T.some(t=>t[0]===ut))ut='feed';
+ return `<div class="tabs">${T.map(t=>`<button class="${ut===t[0]?'on':''}" onclick="ut='${t[0]}';render()">${t[1]}</button>`).join('')}</div>`+({feed:feedHTML,news:newsHTML,sch:schHTML,vm:vmHTML,fb:contactHTML}[ut])()}
+function render(){const y=window.scrollY;render0();if(y>0)window.scrollTo(0,y)}
 /* ---- تشغيل ---- */
 try{S.posts=ls.get('pc');render();poll();dayLog()}catch(e){hideLoad()}
 setInterval(poll,6000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
